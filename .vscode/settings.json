@@ -1,0 +1,10 @@
+{
+    "sqltools.connections": [
+        {
+            "previewLimit": 50,
+            "driver": "SQLite",
+            "database": "${workspaceFolder:class-game}/frontend/center_data.db",
+            "name": "1+1"
+        }
+    ]
+}
