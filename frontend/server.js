@@ -3,102 +3,297 @@ import sqlite3 from 'sqlite3';
 import { open } from 'sqlite';
 import cors from 'cors';
 import path from 'path';
-import fs from 'fs';
 
 const app = express();
-
-// --- 配置区 ---
 const PORT = 3001;
 
-// 中间件
 app.use(cors());
 app.use(express.json());
 
-// 创建数据库连接池
+const dbPath = path.resolve('./center_data.db');
+
 const dbPromise = open({
-    filename: path.resolve('../frontend/center_data.db'),
-    driver: sqlite3.Database
-});
-console.log('DB Path:', path.resolve('../frontend/center_data.db'));
-console.log('Exists check:', fs.existsSync(path.resolve('../frontend/center_data.db')));
-
-/**
- * 核心 API：获取学生角色详情
- * 接口地址：GET http://localhost:3001/api/student/:id
- */
-app.get('/api/student/:id', async (req, res) => {
-    const studentId = req.params.id;
-
-    try {
-        const db = await dbPromise;
-const rows = await db.all('SELECT * FROM students WHERE id = ?', [studentId]);
-
-        if (rows.length === 0) {
-            return res.status(404).json({ success: false, message: "查无此人" });
-        }
-
-        const data = rows[0];
-        console.log("DB row:", data);
-
-        // 【关键逻辑】按照前端组件需求重新格式化数据
-        const formattedData = {
-            id: data.id,
-            name: data.name,
-            avatar: data.avatar,
-            level: data.level,
-            exp: data.exp,
-            title: data.title,
-            // 将散乱的成绩字段封装进 stats 对象
-            stats: data.stats ? JSON.parse(data.stats) : {},
-            tasks: data.tasks ? JSON.parse(data.tasks) : [],
-            profile: data.profile_desc
-        };
-
-
-        res.json(formattedData);
-
-    } catch (error) {
-        console.error('Database Error:', error);
-        res.status(500).json({ success: false, message: "数据库连接异常" });
-    }
+  filename: dbPath,
+  driver: sqlite3.Database,
 });
 
-/**
- * 核心 API：获取所有学生列表
- * 接口地址：GET http://localhost:3001/api/students
- */
+function safeParse(value, defaultValue) {
+  try {
+    return value ? JSON.parse(value) : defaultValue;
+  } catch {
+    return defaultValue;
+  }
+}
+
+function formatStudent(data) {
+  return {
+    id: data.id,
+    name: data.name,
+    title: data.title,
+    avatar: data.avatar,
+    theme: data.theme,
+    level: data.level,
+    exp: data.exp,
+    max_exp: data.max_exp,
+    score: data.score || 0,
+
+    stats: safeParse(data.stats, {}),
+    tasks: safeParse(data.tasks, []),
+    buffs: safeParse(data.buffs, []),
+  };
+}
+
+app.get('/health', (req, res) => {
+  res.json({
+    success: true,
+    message: 'server running',
+  });
+});
+
 app.get('/api/students', async (req, res) => {
-    try {
-        const db = await dbPromise;
-        const rows = await db.all('SELECT * FROM students');
+  try {
+    const db = await dbPromise;
 
-        const list = rows.map(data => {
-            return {
-                id: data.id,
-                name: data.name,
-                avatar: data.avatar,
-                level: data.level,
-                exp: data.exp,
-                title: data.title,
+    const { keyword } = req.query;
 
-                stats: data.stats ? JSON.parse(data.stats) : {},
-                tasks: data.tasks ? JSON.parse(data.tasks) : [],
+    let rows = [];
 
-                profile: data.profile_desc
-            };
-        });
-
-        res.json({
-            success: true,
-            data: list
-        });
-
-    } catch (error) {
-        console.error('Database Error:', error);
-        res.status(500).json({ success: false, message: "数据库连接异常" });
+    if (keyword && keyword.trim()) {
+      rows = await db.all(
+        `
+        SELECT * FROM students
+        WHERE
+          name LIKE ?
+          OR id = ?
+        ORDER BY id DESC
+        `,
+        [
+          `%${keyword}%`,
+          Number(keyword) || -1,
+        ]
+      );
+    } else {
+      rows = await db.all(
+        'SELECT * FROM students ORDER BY id DESC'
+      );
     }
+
+    res.json({
+      success: true,
+      data: rows.map(formatStudent),
+    });
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      success: false,
+      message: '获取学生失败',
+    });
+  }
+});
+
+app.get('/api/student/:id', async (req, res) => {
+  try {
+    const db = await dbPromise;
+
+    const row = await db.get(
+      'SELECT * FROM students WHERE id = ?',
+      [req.params.id]
+    );
+
+    if (!row) {
+      return res.status(404).json({
+        success: false,
+        message: '学生不存在',
+      });
+    }
+
+    res.json({
+      success: true,
+      data: formatStudent(row),
+    });
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      success: false,
+      message: '获取学生失败',
+    });
+  }
+});
+
+app.post('/api/students', async (req, res) => {
+  try {
+    const db = await dbPromise;
+
+    const {
+      name,
+      title,
+      avatar,
+      theme,
+      level,
+      exp,
+      max_exp,
+      score,
+      stats,
+      tasks,
+      buffs,
+    } = req.body;
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: '学生姓名不能为空',
+      });
+    }
+
+    const result = await db.run(
+      `
+      INSERT INTO students (
+        name,
+        title,
+        avatar,
+        theme,
+        level,
+        exp,
+        max_exp,
+        score,
+        stats,
+        tasks,
+        buffs
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      [
+        name,
+        title,
+        avatar,
+        theme,
+        level,
+        exp,
+        max_exp,
+        score,
+        JSON.stringify(stats || {}),
+        JSON.stringify(tasks || []),
+        JSON.stringify(buffs || []),
+      ]
+    );
+
+    const newStudent = await db.get(
+      'SELECT * FROM students WHERE id = ?',
+      [result.lastID]
+    );
+
+    res.json({
+      success: true,
+      data: formatStudent(newStudent),
+    });
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      success: false,
+      message: '新增学生失败',
+    });
+  }
+});
+
+app.put('/api/students/:id', async (req, res) => {
+  try {
+    const db = await dbPromise;
+
+    const oldData = await db.get(
+      'SELECT * FROM students WHERE id = ?',
+      [req.params.id]
+    );
+
+    if (!oldData) {
+      return res.status(404).json({
+        success: false,
+        message: '学生不存在',
+      });
+    }
+
+    const updated = {
+      ...oldData,
+      ...req.body,
+    };
+
+    await db.run(
+      `
+      UPDATE students
+      SET
+        name = ?,
+        title = ?,
+        avatar = ?,
+        theme = ?,
+        level = ?,
+        exp = ?,
+        max_exp = ?,
+        score = ?,
+        stats = ?,
+        tasks = ?,
+        buffs = ?
+      WHERE id = ?
+      `,
+      [
+        updated.name,
+        updated.title,
+        updated.avatar,
+        updated.theme,
+        updated.level,
+        updated.exp,
+        updated.max_exp,
+        updated.score,
+        JSON.stringify(updated.stats || {}),
+        JSON.stringify(updated.tasks || []),
+        JSON.stringify(updated.buffs || []),
+        req.params.id,
+      ]
+    );
+
+    const finalData = await db.get(
+      'SELECT * FROM students WHERE id = ?',
+      [req.params.id]
+    );
+
+    res.json({
+      success: true,
+      data: formatStudent(finalData),
+    });
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      success: false,
+      message: '修改学生失败',
+    });
+  }
+});
+
+app.delete('/api/students/:id', async (req, res) => {
+  try {
+    const db = await dbPromise;
+
+    await db.run(
+      'DELETE FROM students WHERE id = ?',
+      [req.params.id]
+    );
+
+    res.json({
+      success: true,
+      message: '删除成功',
+    });
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      success: false,
+      message: '删除学生失败',
+    });
+  }
 });
 
 app.listen(PORT, () => {
-    console.log(`✨ 服务端已整洁启动：http://localhost:${PORT}`);
+  console.log(`✨ 服务端已启动：http://localhost:${PORT}`);
 });

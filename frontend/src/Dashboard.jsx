@@ -8,29 +8,83 @@ const menuList = [
   { icon: "⚙️", title: "其它" },
 ];
 
-const mockStudents = Array.from({ length: 48 }, (_, index) => ({
-  id: index + 1,
-  name: `学生${index + 1}`,
-  grade: `${Math.floor(index / 10) + 1}年级`,
-  score: Math.floor(Math.random() * 1000),
-  title: ["新手冒险家", "勇者", "学霸", "篮球达人"][index % 4],
-  status: index % 2 === 0 ? "在线" : "离线",
-}));
-
 export default function Dashboard() {
   const [activeMenu, setActiveMenu] = useState(0);
   const [students, setStudents] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [newStudentName, setNewStudentName] = useState("");
+  const [studentForm, setStudentForm] = useState({
+    id: null,
+    name: "",
+    title: "🌟 新成员",
+    avatar: "😀",
+    theme: "blue",
+    level: 1,
+    exp: 0,
+    max_exp: 100,
+    score: 0,
+
+    stats: {
+      chinese: 0,
+      math: 0,
+      english: 0,
+      stamina: 0,
+      discipline: 0,
+      speed: 0,
+      charisma: 0,
+    },
+
+    tasks: [],
+    buffs: [],
+  });
+
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [searchKeyword, setSearchKeyword] = useState("");
 
   const studentsPerPage = 20;
 
+  const fetchStudents = async (keyword = "") => {
+    try {
+      setLoading(true);
+
+      const url = keyword
+        ? `http://localhost:3001/api/students?keyword=${encodeURIComponent(keyword)}`
+        : "http://localhost:3001/api/students";
+
+      const res = await fetch(url);
+      const data = await res.json();
+
+      const list = data?.data || [];
+
+      const parsed = list.map((item) => ({
+        ...item,
+        stats:
+          typeof item.stats === "string"
+            ? JSON.parse(item.stats)
+            : item.stats || {},
+        tasks:
+          typeof item.tasks === "string"
+            ? JSON.parse(item.tasks)
+            : item.tasks || [],
+        buffs:
+          typeof item.buffs === "string"
+            ? JSON.parse(item.buffs)
+            : item.buffs || [],
+      }));
+
+      setStudents(parsed);
+    } catch (error) {
+      console.error("获取学生失败:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (activeMenu === 0) {
-      // TODO: 后续替换成真实接口
-      setStudents(mockStudents);
+      fetchStudents();
     }
   }, [activeMenu]);
 
@@ -41,7 +95,7 @@ export default function Dashboard() {
     currentPage * studentsPerPage
   );
 
-  const handleDelete = (id) => {
+  const handleDelete = async (id) => {
     const firstConfirm = window.confirm("确定要删除这个学生吗？");
 
     if (!firstConfirm) return;
@@ -52,41 +106,109 @@ export default function Dashboard() {
 
     if (!secondConfirm) return;
 
-    setStudents((prev) => prev.filter((item) => item.id !== id));
+    try {
+      await fetch(`http://localhost:3001/api/students/${id}`, {
+        method: "DELETE",
+      });
+
+      setStudents((prev) =>
+        prev.filter((item) => item.id !== id)
+      );
+    } catch (error) {
+      console.error("删除失败:", error);
+    }
   };
 
   const handleEdit = (student) => {
-    const newName = prompt("修改学生姓名", student.name);
+    setStudentForm({
+      id: student.id,
+      name: student.name || "",
+      title: student.title || "",
+      avatar: student.avatar || "😀",
+      theme: student.theme || "blue",
+      level: student.level || 1,
+      exp: student.exp || 0,
+      max_exp: student.max_exp || 100,
+      score: student.score || 0,
 
-    if (!newName) return;
+      stats: student.stats || {
+        chinese: 0,
+        math: 0,
+        english: 0,
+        stamina: 0,
+        discipline: 0,
+        speed: 0,
+        charisma: 0,
+      },
 
-    setStudents((prev) =>
-      prev.map((item) =>
-        item.id === student.id
-          ? {
-              ...item,
-              name: newName,
-            }
-          : item
-      )
-    );
+      tasks: student.tasks || [],
+      buffs: student.buffs || [],
+    });
+
+    setIsEditMode(true);
+    setShowAddModal(true);
   };
 
-  const handleAddStudent = () => {
-    if (!newStudentName.trim()) return;
+  const handleAddStudent = async () => {
+    try {
+      const method = isEditMode ? "PUT" : "POST";
 
-    const newStudent = {
-      id: Date.now(),
-      name: newStudentName,
-      grade: "1年级",
-      score: 0,
-      title: "新成员",
-      status: "在线",
-    };
+      const url = isEditMode
+        ? `http://localhost:3001/api/students/${studentForm.id}`
+        : "http://localhost:3001/api/students";
 
-    setStudents((prev) => [newStudent, ...prev]);
-    setNewStudentName("");
-    setShowAddModal(false);
+      const res = await fetch(url, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(studentForm),
+      });
+
+      const data = await res.json();
+
+      if (isEditMode) {
+        setStudents((prev) =>
+          prev.map((item) =>
+            item.id === studentForm.id
+              ? data.data
+              : item
+          )
+        );
+      } else {
+        setStudents((prev) => [data.data, ...prev]);
+      }
+
+      setStudentForm({
+        id: null,
+        name: "",
+        title: "🌟 新成员",
+        avatar: "😀",
+        theme: "blue",
+        level: 1,
+        exp: 0,
+        max_exp: 100,
+        score: 0,
+
+        stats: {
+          chinese: 0,
+          math: 0,
+          english: 0,
+          stamina: 0,
+          discipline: 0,
+          speed: 0,
+          charisma: 0,
+        },
+
+        tasks: [],
+        buffs: [],
+      });
+
+      setIsEditMode(false);
+      setShowAddModal(false);
+    } catch (error) {
+      console.error("保存失败:", error);
+    }
   };
   return (
     <div
@@ -255,6 +377,8 @@ export default function Dashboard() {
           justifyContent: "space-between",
           alignItems: "center",
           marginBottom: "25px",
+          gap: "16px",
+          flexWrap: "wrap",
         }}
       >
         <h2
@@ -266,8 +390,103 @@ export default function Dashboard() {
           学生列表
         </h2>
 
+        <div
+          style={{
+            display: "flex",
+            gap: "12px",
+            alignItems: "center",
+            flex: 1,
+            minWidth: "320px",
+          }}
+        >
+          <input
+            value={searchKeyword}
+            onChange={(e) => setSearchKeyword(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                fetchStudents(searchKeyword);
+              }
+            }}
+            placeholder="搜索学生姓名或ID"
+            style={{
+              flex: 1,
+              padding: "12px 16px",
+              borderRadius: "12px",
+              border: "1px solid #cbd5e1",
+              fontSize: "15px",
+              outline: "none",
+            }}
+          />
+
+          <button
+            onClick={() => {
+              setCurrentPage(1);
+              fetchStudents(searchKeyword);
+            }}
+            style={{
+              background: "#0f172a",
+              color: "white",
+              border: "none",
+              padding: "12px 18px",
+              borderRadius: "12px",
+              cursor: "pointer",
+              fontWeight: "600",
+            }}
+          >
+            搜索
+          </button>
+
+          <button
+            onClick={() => {
+              setSearchKeyword("");
+              setCurrentPage(1);
+              fetchStudents();
+            }}
+            style={{
+              background: "#e2e8f0",
+              color: "#1e293b",
+              border: "none",
+              padding: "12px 18px",
+              borderRadius: "12px",
+              cursor: "pointer",
+              fontWeight: "600",
+            }}
+          >
+            重置
+          </button>
+        </div>
+
         <button
-          onClick={() => setShowAddModal(true)}
+          onClick={() => {
+            setIsEditMode(false);
+
+            setStudentForm({
+              id: null,
+              name: "",
+              title: "🌟 新成员",
+              avatar: "😀",
+              theme: "blue",
+              level: 1,
+              exp: 0,
+              max_exp: 100,
+              score: 0,
+
+              stats: {
+                chinese: 0,
+                math: 0,
+                english: 0,
+                stamina: 0,
+                discipline: 0,
+                speed: 0,
+                charisma: 0,
+              },
+
+              tasks: [],
+              buffs: [],
+            });
+
+            setShowAddModal(true);
+          }}
           style={{
             background: "#2563eb",
             color: "white",
@@ -304,8 +523,8 @@ export default function Dashboard() {
             >
               <th style={{ padding: "16px" }}>ID</th>
               <th style={{ padding: "16px" }}>姓名</th>
-              <th style={{ padding: "16px" }}>年级</th>
-              <th style={{ padding: "16px" }}>奖励分</th>
+              <th style={{ padding: "16px" }}>等级</th>
+              <th style={{ padding: "16px" }}>经验值</th>
               <th style={{ padding: "16px" }}>称号</th>
               <th style={{ padding: "16px" }}>状态</th>
               <th style={{ padding: "16px" }}>操作</th>
@@ -313,7 +532,32 @@ export default function Dashboard() {
           </thead>
 
           <tbody>
-            {currentStudents.map((student) => (
+            {loading ? (
+  <tr>
+    <td
+      colSpan="7"
+      style={{
+        padding: "30px",
+        textAlign: "center",
+      }}
+    >
+      加载中...
+    </td>
+  </tr>
+) : currentStudents.length === 0 ? (
+  <tr>
+    <td
+      colSpan="7"
+      style={{
+        padding: "30px",
+        textAlign: "center",
+      }}
+    >
+      暂无学生数据
+    </td>
+  </tr>
+) : (
+  currentStudents.map((student) => (
               <tr
                 key={student.id}
                 style={{
@@ -322,10 +566,16 @@ export default function Dashboard() {
               >
                 <td style={{ padding: "16px" }}>{student.id}</td>
                 <td style={{ padding: "16px" }}>{student.name}</td>
-                <td style={{ padding: "16px" }}>{student.grade}</td>
-                <td style={{ padding: "16px" }}>{student.score}</td>
+                <td style={{ padding: "16px" }}>
+                  Lv.{student.level || 1}
+                </td>
+                <td style={{ padding: "16px" }}>
+                  {student.exp || 0}
+                </td>
                 <td style={{ padding: "16px" }}>{student.title}</td>
-                <td style={{ padding: "16px" }}>{student.status}</td>
+                <td style={{ padding: "16px" }}>
+                  {student.theme || "blue"}
+                </td>
 
                 <td
                   style={{
@@ -377,7 +627,8 @@ export default function Dashboard() {
                   </button>
                 </td>
               </tr>
-            ))}
+            ))
+)}
           </tbody>
         </table>
       </div>
@@ -435,11 +686,42 @@ export default function Dashboard() {
           >
             <h2>学生详情</h2>
 
-            <p>姓名：{selectedStudent.name}</p>
-            <p>年级：{selectedStudent.grade}</p>
-            <p>奖励分：{selectedStudent.score}</p>
+            <p>
+              头像：{selectedStudent.avatar}
+            </p>
+
+            <p>
+              姓名：{selectedStudent.name}
+            </p>
+            <p>等级：Lv.{selectedStudent.level || 1}</p>
+            <p>经验值：{selectedStudent.exp || 0}</p>
             <p>称号：{selectedStudent.title}</p>
-            <p>状态：{selectedStudent.status}</p>
+            <p>主题：{selectedStudent.theme}</p>
+            <p>积分：{selectedStudent.score}</p>
+
+            <div style={{ marginTop: "20px" }}>
+              <h3>属性</h3>
+
+              <p>
+                语文：
+                {selectedStudent.stats?.chinese || 0}
+              </p>
+
+              <p>
+                数学：
+                {selectedStudent.stats?.math || 0}
+              </p>
+
+              <p>
+                英语：
+                {selectedStudent.stats?.english || 0}
+              </p>
+
+              <p>
+                体力：
+                {selectedStudent.stats?.stamina || 0}
+              </p>
+            </div>
 
             <button
               onClick={() => setSelectedStudent(null)}
@@ -477,26 +759,353 @@ export default function Dashboard() {
               background: "white",
               borderRadius: "20px",
               padding: "30px",
-              width: "420px",
+              width: "90vw",
+              maxWidth: "900px",
+              maxHeight: "90vh",
+              overflowY: "auto",
+              boxSizing: "border-box",
             }}
           >
-            <h2>添加学生</h2>
-
-            <input
-              value={newStudentName}
-              onChange={(e) => setNewStudentName(e.target.value)}
-              placeholder="请输入学生姓名"
+            <div
               style={{
-                width: "100%",
-                padding: "14px",
-                marginTop: "20px",
-                borderRadius: "12px",
-                border: "1px solid #cbd5e1",
-                fontSize: "16px",
-                boxSizing: "border-box",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: "10px",
               }}
-            />
+            >
+              <h2 style={{ margin: 0 }}>
+                {isEditMode ? "修改学生" : "添加学生"}
+              </h2>
 
+              {isEditMode && (
+                <div
+                  style={{
+                    background: "#dbeafe",
+                    color: "#1d4ed8",
+                    padding: "6px 12px",
+                    borderRadius: "999px",
+                    fontSize: "14px",
+                    fontWeight: "600",
+                  }}
+                >
+                  id: {studentForm.id}
+                </div>
+              )}
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))",
+                gap: "16px",
+                marginTop: "20px",
+              }}
+            >
+              <div>
+                <div
+                  style={{
+                    marginBottom: "6px",
+                    fontSize: "14px",
+                    fontWeight: "600",
+                    color: "#334155",
+                  }}
+                >
+                  name - 学生姓名
+                </div>
+
+                <input
+                  value={studentForm.name}
+                  onChange={(e) =>
+                    setStudentForm({
+                      ...studentForm,
+                      name: e.target.value,
+                    })
+                  }
+                  placeholder="学生姓名"
+                  style={{
+                    width: "100%",
+                    padding: "14px",
+                    borderRadius: "12px",
+                    border: "1px solid #cbd5e1",
+                    fontSize: "16px",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+
+              <div>
+                <div
+                  style={{
+                    marginBottom: "6px",
+                    fontSize: "14px",
+                    fontWeight: "600",
+                    color: "#334155",
+                  }}
+                >
+                  title - 称号
+                </div>
+                <input
+                  value={studentForm.title}
+                  onChange={(e) =>
+                    setStudentForm({
+                      ...studentForm,
+                      title: e.target.value,
+                    })
+                  }
+                  placeholder="称号"
+                  style={{
+                    width: "100%",
+                    padding: "14px",
+                    borderRadius: "12px",
+                    border: "1px solid #cbd5e1",
+                    fontSize: "16px",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+
+              <div>
+                <div
+                  style={{
+                    marginBottom: "6px",
+                    fontSize: "14px",
+                    fontWeight: "600",
+                    color: "#334155",
+                  }}
+                >
+                  avatar - 头像
+                </div>
+                <input
+                  value={studentForm.avatar}
+                  onChange={(e) =>
+                    setStudentForm({
+                      ...studentForm,
+                      avatar: e.target.value,
+                    })
+                  }
+                  placeholder="头像 Emoji"
+                  style={{
+                    width: "100%",
+                    padding: "14px",
+                    borderRadius: "12px",
+                    border: "1px solid #cbd5e1",
+                    fontSize: "16px",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+
+              <div>
+                <div
+                  style={{
+                    marginBottom: "6px",
+                    fontSize: "14px",
+                    fontWeight: "600",
+                    color: "#334155",
+                  }}
+                >
+                  theme - 主题
+                </div>
+                <select
+                  value={studentForm.theme}
+                  onChange={(e) =>
+                    setStudentForm({
+                      ...studentForm,
+                      theme: e.target.value,
+                    })
+                  }
+                  style={{
+                    width: "100%",
+                    padding: "14px",
+                    borderRadius: "12px",
+                    border: "1px solid #cbd5e1",
+                    fontSize: "16px",
+                    boxSizing: "border-box",
+                  }}
+                >
+                  <option value="blue">blue</option>
+                  <option value="pink">pink</option>
+                  <option value="purple">purple</option>
+                  <option value="green">green</option>
+                </select>
+              </div>
+
+              <div>
+                <div
+                  style={{
+                    marginBottom: "6px",
+                    fontSize: "14px",
+                    fontWeight: "600",
+                    color: "#334155",
+                  }}
+                >
+                  level - 等级
+                </div>
+                <input
+                  type="number"
+                  value={studentForm.level}
+                  onChange={(e) =>
+                    setStudentForm({
+                      ...studentForm,
+                      level: Number(e.target.value),
+                    })
+                  }
+                  placeholder="等级"
+                  style={{
+                    width: "100%",
+                    padding: "14px",
+                    borderRadius: "12px",
+                    border: "1px solid #cbd5e1",
+                    fontSize: "16px",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+
+              <div>
+                <div
+                  style={{
+                    marginBottom: "6px",
+                    fontSize: "14px",
+                    fontWeight: "600",
+                    color: "#334155",
+                  }}
+                >
+                  exp - 当前经验值
+                </div>
+                <input
+                  type="number"
+                  value={studentForm.exp}
+                  onChange={(e) =>
+                    setStudentForm({
+                      ...studentForm,
+                      exp: Number(e.target.value),
+                    })
+                  }
+                  placeholder="经验值"
+                  style={{
+                    width: "100%",
+                    padding: "14px",
+                    borderRadius: "12px",
+                    border: "1px solid #cbd5e1",
+                    fontSize: "16px",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+
+              <div>
+                <div
+                  style={{
+                    marginBottom: "6px",
+                    fontSize: "14px",
+                    fontWeight: "600",
+                    color: "#334155",
+                  }}
+                >
+                  max_exp - 最大经验值
+                </div>
+                <input
+                  type="number"
+                  value={studentForm.max_exp}
+                  onChange={(e) =>
+                    setStudentForm({
+                      ...studentForm,
+                      max_exp: Number(e.target.value),
+                    })
+                  }
+                  placeholder="最大经验值"
+                  style={{
+                    width: "100%",
+                    padding: "14px",
+                    borderRadius: "12px",
+                    border: "1px solid #cbd5e1",
+                    fontSize: "16px",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+
+              <div>
+                <div
+                  style={{
+                    marginBottom: "6px",
+                    fontSize: "14px",
+                    fontWeight: "600",
+                    color: "#334155",
+                  }}
+                >
+                  score - 积分
+                </div>
+                <input
+                  type="number"
+                  value={studentForm.score}
+                  onChange={(e) =>
+                    setStudentForm({
+                      ...studentForm,
+                      score: Number(e.target.value),
+                    })
+                  }
+                  placeholder="积分"
+                  style={{
+                    width: "100%",
+                    padding: "14px",
+                    borderRadius: "12px",
+                    border: "1px solid #cbd5e1",
+                    fontSize: "16px",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+
+              <div
+                style={{
+                  gridColumn: "1 / -1",
+                  marginTop: "10px",
+                }}
+              >
+                <h3 style={{ margin: 0 }}>属性</h3>
+              </div>
+
+              {Object.keys(studentForm.stats).map((key) => (
+                <div key={key}>
+                  <div
+                    style={{
+                      marginBottom: "6px",
+                      fontSize: "14px",
+                      fontWeight: "600",
+                      color: "#334155",
+                    }}
+                  >
+                    属性 - {key}
+                  </div>
+
+                  <input
+                    type="number"
+                    value={studentForm.stats[key]}
+                    onChange={(e) =>
+                      setStudentForm({
+                        ...studentForm,
+                        stats: {
+                          ...studentForm.stats,
+                          [key]: Number(e.target.value),
+                        },
+                      })
+                    }
+                    placeholder={key}
+                    style={{
+                      width: "100%",
+                      padding: "12px",
+                      borderRadius: "10px",
+                      border: "1px solid #cbd5e1",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+            </div>
             <div
               style={{
                 display: "flex",
@@ -516,7 +1125,7 @@ export default function Dashboard() {
                   cursor: "pointer",
                 }}
               >
-                确认添加
+                {isEditMode ? "保存修改" : "确认添加"}
               </button>
 
               <button
@@ -534,7 +1143,6 @@ export default function Dashboard() {
                 取消
               </button>
             </div>
-          </div>
         </div>
       )}
     </div>
