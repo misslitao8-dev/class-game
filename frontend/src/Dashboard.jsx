@@ -251,7 +251,7 @@ export default function Dashboard() {
                 fontSize: "14px",
               }}
             >
-              管理 · 成长 · 激励
+              我是确认一下的
             </p>
           </div>
 
